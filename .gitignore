@@ -1,0 +1,31 @@
+# Xcode build products
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods / SPM (only relevant if you add dependencies later)
+Pods/
+.build/
+
+# macOS
+.DS_Store
+
+# Deploy pipeline artifacts — nothing here should be tracked
+build/Build/
+*.xcresult
+
+# Media assets on the phone, not the repo (if you ever stage local copies for testing)
+*.mp3
+*.flac
+*.mp4
+
+# Test files created for debugging ldid
+entitlements_test.plist
+entitlements_binary.plist
