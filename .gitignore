@@ -28,4 +28,4 @@ build/Build/
 
 # Test files created for debugging ldid
 entitlements_test.plist
-entitlements_binary.plist
+entitlements_binary.plist.ldid.entitlements.plist
