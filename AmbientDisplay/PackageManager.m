@@ -375,6 +375,39 @@ static NSString * const kManifestFileName = @"manifest.json";
     return self.activePlaylistId ? [self playlistWithId:self.activePlaylistId] : nil;
 }
 
+#pragma mark Resolution
+
+- (nullable AmbientTheme *)resolveActiveThemeWithFallback {
+    AmbientTheme *theme = self.activeTheme;
+    if (theme) {
+        // setActiveThemeId: is the only place we re-sync the playlist for a
+        // package (see setActiveThemeId:error: above). If the theme was
+        // already active from a previous launch's state.json but no
+        // playlist ever got synced (e.g. it had zero valid tracks back
+        // then), re-trigger that sync now that the package may have been
+        // fixed.
+        if (!self.activePlaylist) {
+            [self setActiveThemeId:theme.themeId error:nil];
+        }
+        return theme;
+    }
+
+    AmbientTheme *fallback = self.installedThemes.firstObject;
+    if (!fallback) {
+        NSLog(@"[PackageManager] No themes installed");
+        return nil;
+    }
+
+    NSError *error = nil;
+    if (![self setActiveThemeId:fallback.themeId error:&error]) {
+        NSLog(@"[PackageManager] failed to activate fallback theme: %@", error);
+        return nil;
+    }
+    // No recursive re-resolve here: we just activated `fallback` directly,
+    // so `self.activeTheme` is now guaranteed to return it.
+    return fallback;
+}
+
 #pragma mark Settings persistence
 
 - (void)setSyncPlaylistWithTheme:(BOOL)syncPlaylistWithTheme {

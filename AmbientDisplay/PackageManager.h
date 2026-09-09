@@ -52,6 +52,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)setActiveThemeId:(NSString *)themeId error:(NSError **)error;
 - (BOOL)setActivePlaylistId:(NSString *)playlistId error:(NSError **)error;
 
+- (nullable AmbientTheme *)resolveActiveThemeWithFallback;
+
 - (nullable AmbientTheme *)randomThemeMatchingWeatherTag:(NSString *)weatherTag;
 
 @end
