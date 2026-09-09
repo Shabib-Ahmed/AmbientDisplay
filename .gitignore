@@ -10,7 +10,7 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 
-# CocoaPods / SPM (only relevant if you add dependencies later)
+# CocoaPods / SPM 
 Pods/
 .build/
 
@@ -21,7 +21,7 @@ Pods/
 build/Build/
 *.xcresult
 
-# Media assets on the phone, not the repo (if you ever stage local copies for testing)
+# Media assets on the phone, not the repo 
 *.mp3
 *.flac
 *.mp4
@@ -29,3 +29,7 @@ build/Build/
 # Test files created for debugging ldid
 entitlements_test.plist
 entitlements_binary.plist.ldid.entitlements.plist
+
+.device_countainer_path
+
+ambient_syslog.txt

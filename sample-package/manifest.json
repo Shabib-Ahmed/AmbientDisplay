@@ -5,5 +5,8 @@
     "theme": {
         "entryPoint": "index.html",
         "weatherTags": []
+    },
+    "playlist": {
+        "tracks": ["track1.mp3"]
     }
 }

@@ -27,6 +27,15 @@
     AmbientTheme *theme = self.packageManager.activeTheme;
     if (theme){
         [self.webView loadFileURL:theme.entryPointURL allowingReadAccessToURL:theme.readAccessURL];
+
+        // setActiveThemeId: is the only place PackageManager re-syncs the
+        // playlist for a package (see syncPlaylistWithTheme in PackageManager.m).
+        // If the theme was already active from a previous launch's state.json
+        // but no playlist ever got synced (e.g. it had zero valid tracks back
+        // then), re-trigger that sync now that the package may have been fixed.
+        if (!self.packageManager.activePlaylist) {
+            [self.packageManager setActiveThemeId:theme.themeId error:nil];
+        }
         return;
     }
     
