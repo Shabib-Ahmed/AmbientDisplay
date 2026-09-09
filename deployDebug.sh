@@ -2,11 +2,9 @@
 set -e
 
 APP_NAME="AmbientDisplay"
-SCHEME="AmbientDisplay" 
+SCHEME="AmbientDisplay"
 CONFIG="Debug"
-DEVICE_HOST="localhost"
-DEVICE_PORT="2222"
-REMOTE_DIR="/var/containers/Bundle/Application/AmbientDisplayDev" 
+BUNDLE_ID="com.causeifeltlikeit.AmbientDisplay"
 
 xcodebuild \
     -project            AmbientDisplay.xcodeproj \
@@ -16,13 +14,30 @@ xcodebuild \
     -destination        "generic/platform=iOS" \
     -derivedDataPath    build CODE_SIGNING_ALLOWED=NO build
 
-APP_PATH="build/Build/Products/$CONFIG-iphoneos/$APP_NAME.app"
+BUILD_DIR="build/Build/Products/$CONFIG-iphoneos"
+APP_PATH="$BUILD_DIR/$APP_NAME.app"
 
 codesign --force --sign - --entitlements entitlements.plist "$APP_PATH/$APP_NAME"
 
-ssh -p $DEVICE_PORT root@$DEVICE_HOST "mkdir -p $REMOTE_DIR"
-rsync -avz -e "ssh -p $DEVICE_PORT" "$APP_PATH" root@$DEVICE_HOST:$REMOTE_DIR/
+IPA_PATH="$BUILD_DIR/$APP_NAME.ipa"
+PAYLOAD_DIR="$BUILD_DIR/Payload"
 
-ssh -p $DEVICE_PORT root@$DEVICE_HOST "uicache -p $REMOTE_DIR/$APP_NAME.app"
+rm -rf "$PAYLOAD_DIR" "$IPA_PATH"
+mkdir -p "$PAYLOAD_DIR"
+cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+( cd "$BUILD_DIR" && zip -qry "$APP_NAME.ipa" Payload )
 
-echo "Deploy Script Done" 
+if ! ideviceinstaller upgrade "$IPA_PATH"; then
+    echo "Upgrade failed, falling back to a clean install..."
+    ideviceinstaller uninstall "$BUNDLE_ID" >/dev/null 2>&1 || true
+    ideviceinstaller install "$IPA_PATH"
+fi
+
+rm -rf "$PAYLOAD_DIR"
+
+source "$(dirname "$0")/container_path.sh"
+resolve_container_path
+echo "Container: $CONTAINER_PATH"
+echo "$CONTAINER_PATH" > .device_container_path
+
+echo "Deploy Script Done"

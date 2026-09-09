@@ -1,36 +1,48 @@
-//
-//  ViewController.m
-//  AmbientDisplay
-//
-//  Created by Lambda on 9/2/26.
-//
-
 #import "ViewController.h"
-#import "ThemeManager.h"
+#import "PackageManager.h"
 
 @interface ViewController ()
-
 @end
 
 @implementation ViewController
 
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    NSLog(@"[AmbientDisplay] viewDidLoad START");
-    NSLog(@"[AmbientDisplay] Home directory: %@", NSHomeDirectory());
-    self.webView = [[WKWebView alloc] initWithFrame:self.view.bounds configuration:[[WKWebViewConfiguration alloc] init]];
-    self.webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self.view addSubview:self.webView];
-
-    NSURL *readAccessURL = [[ThemeManager sharedManager] ensureActiveThemeDirectoryExists];
-    NSURL *indexURL = [[ThemeManager sharedManager] activeThemeIndexURL];
-
-    if (indexURL) {
-        [self.webView loadFileURL:indexURL allowingReadAccessToURL:readAccessURL];
-    } else {
-        NSLog(@"[AmbientDisplay] No theme found");
+- (PackageManager *)packageManager{
+    if (!_packageManager){
+        _packageManager = [PackageManager sharedManager];
     }
+    return _packageManager;
 }
 
+- (void)viewDidLoad{
+    [super viewDidLoad];
+    self.webView = [[WKWebView alloc] initWithFrame:self.view.bounds configuration:[[WKWebViewConfiguration alloc] init]];
+    self.webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    
+    [self.view addSubview:self.webView];
+    [self.packageManager reloadInstalledPackages];
+    [self loadActiveTheme];
+}
+
+- (void)loadActiveTheme{
+    AmbientTheme *theme = self.packageManager.activeTheme;
+    if (theme){
+        [self.webView loadFileURL:theme.entryPointURL allowingReadAccessToURL:theme.readAccessURL];
+        return;
+    }
+    
+    
+    AmbientTheme *fallback = self.packageManager.installedThemes.firstObject;
+        if (fallback) {
+            NSError *error = nil;
+            if ([self.packageManager setActiveThemeId:fallback.themeId error:&error]) {
+                [self loadActiveTheme];
+            } else {
+                NSLog(@"[AmbientDisplay] failed to activate fallback theme: %@", error);
+            }
+            return;
+        }
+     
+        NSLog(@"[AmbientDisplay] No themes installed");
+}
 
 @end

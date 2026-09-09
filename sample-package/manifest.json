@@ -1,0 +1,9 @@
+{
+    "manifestVersion": 1,
+    "packageId": "com.test.hello",
+    "displayName": "Hello Test",
+    "theme": {
+        "entryPoint": "index.html",
+        "weatherTags": []
+    }
+}
