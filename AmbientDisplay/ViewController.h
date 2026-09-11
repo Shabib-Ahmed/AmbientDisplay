@@ -9,7 +9,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, strong) WKWebView *webView;
 @property (nonatomic, strong) PackageManager *packageManager;
-- (void)loadActiveTheme; 
 
 @end
 

@@ -9,14 +9,49 @@ static NSString * const kThemeDirName = @"Theme";
 static NSString * const kPlaylistDirName = @"Playlist";
 static NSString * const kManifestFileName = @"manifest.json";
 
+// Each package's manifest.json declares exactly one of these under the
+// "type" key. Themes and playlists are fully independent packages now —
+// a package is never both.
+static NSString * const kPackageTypeTheme = @"theme";
+static NSString * const kPackageTypePlaylist = @"playlist";
+
+#pragma mark - AmbientThemeLayer
+
+// A layer is deliberately opaque beyond its "kind" - PackageManager has no
+// knowledge of what fields a given kind requires (a "particles" effect
+// might have "texture"/"count"/"speed"; a "clock" layer might have
+// "format"/"position"; a "custom" effect just points at a recipe file).
+// That interpretation belongs entirely to whatever renders each kind.
+// This keeps adding a new effect/layer kind a renderer-only change - no
+// PackageManager or manifest-schema change required.
+@interface AmbientThemeLayer ()
+- (instancetype)initWithKind:(NSString *)kind
+                    parameters:(NSDictionary<NSString *, id> *)parameters;
+@end
+
+@implementation AmbientThemeLayer
+
+- (instancetype)initWithKind:(NSString *)kind
+                    parameters:(NSDictionary<NSString *, id> *)parameters {
+    self = [super init];
+    if (self) {
+        _kind = [kind copy];
+        _parameters = [parameters copy];
+    }
+    return self;
+}
+
+@end
+
 #pragma mark - AmbientTheme
 
 @interface AmbientTheme ()
 - (instancetype)initWithThemeId:(NSString *)themeId
                        packageId:(NSString *)packageId
                      displayName:(NSString *)displayName
-                   entryPointURL:(NSURL *)entryPointURL
-                   readAccessURL:(NSURL *)readAccessURL
+               backgroundVideoURL:(NSURL *)backgroundVideoURL
+                themeDirectoryURL:(NSURL *)themeDirectoryURL
+                          layers:(NSArray<AmbientThemeLayer *> *)layers
                      weatherTags:(NSArray<NSString *> *)weatherTags;
 @end
 
@@ -25,16 +60,18 @@ static NSString * const kManifestFileName = @"manifest.json";
 - (instancetype)initWithThemeId:(NSString *)themeId
                        packageId:(NSString *)packageId
                      displayName:(NSString *)displayName
-                   entryPointURL:(NSURL *)entryPointURL
-                   readAccessURL:(NSURL *)readAccessURL
+               backgroundVideoURL:(NSURL *)backgroundVideoURL
+                themeDirectoryURL:(NSURL *)themeDirectoryURL
+                          layers:(NSArray<AmbientThemeLayer *> *)layers
                      weatherTags:(NSArray<NSString *> *)weatherTags {
     self = [super init];
     if (self) {
         _themeId = [themeId copy];
         _packageId = [packageId copy];
         _displayName = [displayName copy];
-        _entryPointURL = [entryPointURL copy];
-        _readAccessURL = [readAccessURL copy];
+        _backgroundVideoURL = [backgroundVideoURL copy];
+        _themeDirectoryURL = [themeDirectoryURL copy];
+        _layers = [layers copy];
         _weatherTags = [weatherTags copy];
     }
     return self;
@@ -95,7 +132,6 @@ static NSString * const kManifestFileName = @"manifest.json";
         _basePath = [basePath copy];
         _installedThemes = @[];
         _installedPlaylists = @[];
-        _syncPlaylistWithTheme = YES;
         _weatherAutoTheme = NO;
     }
     return self;
@@ -183,40 +219,63 @@ static NSString * const kManifestFileName = @"manifest.json";
         return;
     }
 
-    NSDictionary *themeDict = manifest[@"theme"];
-    if ([themeDict isKindOfClass:[NSDictionary class]]) {
+    NSString *packageType = manifest[@"type"];
+    if (![packageType isKindOfClass:[NSString class]]) {
+        NSLog(@"[PackageManager] manifest at %@ missing \"type\", skipping", packageDirPath);
+        return;
+    }
+
+    if ([packageType isEqualToString:kPackageTypeTheme]) {
+        NSDictionary *themeDict = manifest[@"theme"];
+        if (![themeDict isKindOfClass:[NSDictionary class]]) {
+            NSLog(@"[PackageManager] package %@ declares type=theme but has no \"theme\" section, skipping", packageId);
+            return;
+        }
         AmbientTheme *theme = [self themeFromDict:themeDict packageId:packageId packageDirPath:packageDirPath];
         if (theme) {
             [themes addObject:theme];
         }
-    }
-
-    NSDictionary *playlistDict = manifest[@"playlist"];
-    if ([playlistDict isKindOfClass:[NSDictionary class]]) {
+    } else if ([packageType isEqualToString:kPackageTypePlaylist]) {
+        NSDictionary *playlistDict = manifest[@"playlist"];
+        if (![playlistDict isKindOfClass:[NSDictionary class]]) {
+            NSLog(@"[PackageManager] package %@ declares type=playlist but has no \"playlist\" section, skipping", packageId);
+            return;
+        }
         AmbientPlaylist *playlist = [self playlistFromDict:playlistDict packageId:packageId packageDirPath:packageDirPath];
         if (playlist) {
             [playlists addObject:playlist];
         }
+    } else {
+        NSLog(@"[PackageManager] package %@ has unknown type \"%@\", skipping", packageId, packageType);
+        return;
     }
 }
 
 - (nullable AmbientTheme *)themeFromDict:(NSDictionary *)dict
                                 packageId:(NSString *)packageId
                            packageDirPath:(NSString *)packageDirPath {
-    NSString *entryPoint = dict[@"entryPoint"];
-    if (![entryPoint isKindOfClass:[NSString class]] || entryPoint.length == 0) {
-        NSLog(@"[PackageManager] theme in %@ missing entryPoint, skipping", packageId);
+    NSDictionary *backgroundDict = dict[@"background"];
+    if (![backgroundDict isKindOfClass:[NSDictionary class]]) {
+        NSLog(@"[PackageManager] theme in %@ missing \"background\", skipping", packageId);
+        return nil;
+    }
+
+    NSString *videoFileName = backgroundDict[@"video"];
+    if (![videoFileName isKindOfClass:[NSString class]] || videoFileName.length == 0) {
+        NSLog(@"[PackageManager] theme in %@ missing background.video, skipping", packageId);
         return nil;
     }
 
     NSString *themeDirPath = [packageDirPath stringByAppendingPathComponent:kThemeDirName];
-    NSString *entryPointPath = [themeDirPath stringByAppendingPathComponent:entryPoint];
+    NSString *videoPath = [themeDirPath stringByAppendingPathComponent:videoFileName];
 
     NSFileManager *fm = [NSFileManager defaultManager];
-    if (![fm fileExistsAtPath:entryPointPath]) {
-        NSLog(@"[PackageManager] theme entryPoint missing on disk: %@", entryPointPath);
+    if (![fm fileExistsAtPath:videoPath]) {
+        NSLog(@"[PackageManager] theme background video missing on disk: %@", videoPath);
         return nil;
     }
+
+    NSArray<AmbientThemeLayer *> *layers = [self layersFromArray:dict[@"layers"] packageId:packageId];
 
     NSArray *rawTags = dict[@"weatherTags"];
     NSMutableArray<NSString *> *weatherTags = [NSMutableArray array];
@@ -236,9 +295,39 @@ static NSString * const kManifestFileName = @"manifest.json";
     return [[AmbientTheme alloc] initWithThemeId:[packageId stringByAppendingString:@".theme"]
                                         packageId:packageId
                                       displayName:displayName
-                                    entryPointURL:[NSURL fileURLWithPath:entryPointPath]
-                                    readAccessURL:[NSURL fileURLWithPath:themeDirPath isDirectory:YES]
+                              backgroundVideoURL:[NSURL fileURLWithPath:videoPath]
+                               themeDirectoryURL:[NSURL fileURLWithPath:themeDirPath isDirectory:YES]
+                                           layers:layers
                                       weatherTags:[weatherTags copy]];
+}
+
+// Generic, forward-compatible pass-through: each entry just needs a
+// non-empty "kind" string. Everything else in the entry is carried through
+// verbatim as that layer's parameters - PackageManager never inspects
+// kind-specific fields, so a manifest referencing a kind this build
+// doesn't know how to render is skipped (logged) here rather than failing
+// the whole theme, and a brand new kind never requires a PackageManager
+// change to parse.
+- (NSArray<AmbientThemeLayer *> *)layersFromArray:(id)rawLayers packageId:(NSString *)packageId {
+    if (![rawLayers isKindOfClass:[NSArray class]]) {
+        return @[];
+    }
+
+    NSMutableArray<AmbientThemeLayer *> *layers = [NSMutableArray array];
+    for (id entry in (NSArray *)rawLayers) {
+        if (![entry isKindOfClass:[NSDictionary class]]) {
+            NSLog(@"[PackageManager] theme in %@ has a non-object layer entry, skipping it", packageId);
+            continue;
+        }
+        NSDictionary *layerDict = (NSDictionary *)entry;
+        NSString *kind = layerDict[@"kind"];
+        if (![kind isKindOfClass:[NSString class]] || kind.length == 0) {
+            NSLog(@"[PackageManager] theme in %@ has a layer with no \"kind\", skipping it", packageId);
+            continue;
+        }
+        [layers addObject:[[AmbientThemeLayer alloc] initWithKind:kind parameters:layerDict]];
+    }
+    return [layers copy];
 }
 
 - (nullable AmbientPlaylist *)playlistFromDict:(NSDictionary *)dict
@@ -296,15 +385,6 @@ static NSString * const kManifestFileName = @"manifest.json";
     return nil;
 }
 
-- (nullable AmbientPlaylist *)playlistForPackageId:(NSString *)packageId {
-    for (AmbientPlaylist *playlist in self.installedPlaylists) {
-        if ([playlist.packageId isEqualToString:packageId]) {
-            return playlist;
-        }
-    }
-    return nil;
-}
-
 #pragma mark Selection
 
 - (BOOL)setActiveThemeId:(NSString *)themeId error:(NSError **)error {
@@ -320,15 +400,6 @@ static NSString * const kManifestFileName = @"manifest.json";
     }
 
     self.activeThemeId = themeId;
-
-    if (self.syncPlaylistWithTheme) {
-        AmbientPlaylist *bundled = [self playlistForPackageId:theme.packageId];
-        if (bundled) {
-            [self setActivePlaylistId:bundled.playlistId error:nil];
-            return YES; // setActivePlaylistId: already persisted state for us
-        }
-    }
-
     [self saveState];
     return YES;
 }
@@ -380,15 +451,6 @@ static NSString * const kManifestFileName = @"manifest.json";
 - (nullable AmbientTheme *)resolveActiveThemeWithFallback {
     AmbientTheme *theme = self.activeTheme;
     if (theme) {
-        // setActiveThemeId: is the only place we re-sync the playlist for a
-        // package (see setActiveThemeId:error: above). If the theme was
-        // already active from a previous launch's state.json but no
-        // playlist ever got synced (e.g. it had zero valid tracks back
-        // then), re-trigger that sync now that the package may have been
-        // fixed.
-        if (!self.activePlaylist) {
-            [self setActiveThemeId:theme.themeId error:nil];
-        }
         return theme;
     }
 
@@ -408,12 +470,30 @@ static NSString * const kManifestFileName = @"manifest.json";
     return fallback;
 }
 
-#pragma mark Settings persistence
+- (nullable AmbientPlaylist *)resolveActivePlaylistWithFallback {
+    AmbientPlaylist *playlist = self.activePlaylist;
+    if (playlist) {
+        return playlist;
+    }
 
-- (void)setSyncPlaylistWithTheme:(BOOL)syncPlaylistWithTheme {
-    _syncPlaylistWithTheme = syncPlaylistWithTheme;
-    [self saveState];
+    // Nothing explicitly chosen (independent of theme selection now) - default
+    // to the first installed playlist so music plays out of the box. Stay
+    // silent only when there's genuinely no playlist package installed.
+    AmbientPlaylist *fallback = self.installedPlaylists.firstObject;
+    if (!fallback) {
+        NSLog(@"[PackageManager] No playlists installed");
+        return nil;
+    }
+
+    NSError *error = nil;
+    if (![self setActivePlaylistId:fallback.playlistId error:&error]) {
+        NSLog(@"[PackageManager] failed to activate fallback playlist: %@", error);
+        return nil;
+    }
+    return fallback;
 }
+
+#pragma mark Settings persistence
 
 - (void)setWeatherAutoTheme:(BOOL)weatherAutoTheme {
     _weatherAutoTheme = weatherAutoTheme;
@@ -445,9 +525,6 @@ static NSString * const kManifestFileName = @"manifest.json";
 
     NSDictionary *settings = state[@"settings"];
     if ([settings isKindOfClass:[NSDictionary class]]) {
-        if (settings[@"syncPlaylistWithTheme"]) {
-            _syncPlaylistWithTheme = [settings[@"syncPlaylistWithTheme"] boolValue];
-        }
         if (settings[@"weatherAutoTheme"]) {
             _weatherAutoTheme = [settings[@"weatherAutoTheme"] boolValue];
         }
@@ -463,7 +540,6 @@ static NSString * const kManifestFileName = @"manifest.json";
         state[@"activePlaylistId"] = self.activePlaylistId;
     }
     state[@"settings"] = @{
-        @"syncPlaylistWithTheme": @(self.syncPlaylistWithTheme),
         @"weatherAutoTheme": @(self.weatherAutoTheme),
     };
 

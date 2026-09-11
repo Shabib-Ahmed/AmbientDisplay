@@ -1,0 +1,7 @@
+{
+    "packageId": "com.test.hello-playlist",
+    "type": "playlist",
+    "playlist": {
+        "tracks": ["track1.mp3"]
+    }
+}

@@ -1,0 +1,39 @@
+{
+    "packageId": "com.example.rainynight",
+    "type": "theme",
+    "theme": {
+        "displayName": "Rainy Night",
+        "weatherTags": ["rain", "storm"],
+        "background": {
+            "video": "test.mp4"
+        },
+        "layers": [
+            {
+                "kind": "effect",
+                "type": "particles",
+                "texture": "textures/raindrop.png",
+                "count": 60,
+                "speed": 0.4,
+                "blendMode": "screen"
+            },
+            {
+                "kind": "clock",
+                "format": "h:mm",
+                "font": "Helvetica-Light",
+                "size": 96,
+                "color": "#ffffffcc",
+                "position": { "x": 0.5, "y": 0.15 }
+            },
+            {
+                "kind": "effect",
+                "type": "custom",
+                "recipe": "effects/glow.json"
+            },
+            {
+                "kind": "overlay",
+                "html": "index.html",
+                "css": "overlay.css"
+            }
+        ]
+    }
+}

@@ -16,6 +16,13 @@ static NSUInteger const kFFTLog2n = 11;
 @property (nonatomic, copy) NSArray<NSURL *> *queueURLs;
 @property (nonatomic, assign) NSUInteger queueIndex;
 
+// The playlistId currently loaded into queueURLs. Used to detect the
+// redundant reload that fires when resolveActivePlaylistWithFallback picks
+// a default playlist: setting activePlaylistId re-triggers our own KVO,
+// but by then we've already loaded that exact playlist, so there's nothing
+// further to do.
+@property (nonatomic, copy, nullable) NSString *loadedPlaylistId;
+
 @property (nonatomic, assign) BOOL playing;
 
 @property (atomic, copy, readwrite, nullable) NSArray<NSNumber *> *latestSpectrumBins;
@@ -35,7 +42,7 @@ static NSUInteger const kFFTLog2n = 11;
     self = [super init];
     if (self) {
         _packageManager = packageManager;
-        _repeatMode = RepeatModeOff;
+        _repeatMode = RepeatModeAll;
         _shuffleEnabled = NO;
         _queueURLs = @[];
         _queueIndex = 0;
@@ -104,15 +111,27 @@ static NSUInteger const kFFTLog2n = 11;
 #pragma mark - Playlist loading / hard cut
 
 - (void)reloadActivePlaylistAndHardCut {
+    // resolveActivePlaylistWithFallback: defaults to the first installed
+    // playlist when nothing has been explicitly chosen, and only returns
+    // nil when there's genuinely no playlist package installed. Note this
+    // may call setActivePlaylistId: under us, which re-triggers this method
+    // via our own KVO observation - the loadedPlaylistId check below makes
+    // that redundant second call a no-op.
+    AmbientPlaylist *playlist = [self.packageManager resolveActivePlaylistWithFallback];
+
+    if (playlist && [playlist.playlistId isEqualToString:self.loadedPlaylistId] && self.queueURLs.count > 0) {
+        return;
+    }
+
     [self.playerNode stop];
     self.playing = NO;
 
-    AmbientPlaylist *playlist = self.packageManager.activePlaylist;
     NSArray<NSURL *> *trackURLs = playlist.trackURLs ?: @[];
 
     NSLog(@"[AudioEngineManager] reloadActivePlaylistAndHardCut: activePlaylistId=%@ trackCount=%lu",
-          self.packageManager.activePlaylistId, (unsigned long)trackURLs.count);
+          playlist.playlistId, (unsigned long)trackURLs.count);
 
+    self.loadedPlaylistId = playlist.playlistId;
     self.queueURLs = self.shuffleEnabled ? [self shuffledArray:trackURLs] : trackURLs;
     self.queueIndex = 0;
 
