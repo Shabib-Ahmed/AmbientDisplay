@@ -14,7 +14,7 @@ resolve_container_path() {
 
     if [ -z "$CONTAINER_PATH" ]; then
         echo "Could not resolve a container path for $BUNDLE_ID." >&2
-        echo "Is the app installed? Try running deploy.sh first." >&2
+        echo "Is the app installed? Try running deployDebug.sh first." >&2
         exit 1
     fi
 }

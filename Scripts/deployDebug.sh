@@ -38,7 +38,7 @@ fi
 
 rm -rf "$PAYLOAD_DIR"
 
-source "$(dirname "$0")/container_path.sh"
+source "$SCRIPT_DIR/container_path.sh"
 resolve_container_path
 echo "Container: $CONTAINER_PATH"
 echo "$CONTAINER_PATH" > .device_container_path
