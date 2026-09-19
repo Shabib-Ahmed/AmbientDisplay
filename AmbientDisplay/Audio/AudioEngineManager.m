@@ -3,8 +3,20 @@
 #import <Accelerate/Accelerate.h>
 
 static NSUInteger const kSpectrumBinCount = 32;
-static NSUInteger const kFFTFrameSize = 2048;
-static NSUInteger const kFFTLog2n = 11;
+static NSUInteger const kFFTFrameSize = 4096;
+static NSUInteger const kFFTLog2n = 12;
+
+
+static double const kMinBandHz = 40.0;
+static double const kMaxBandHz = 16000.0;
+
+static float const kNoiseFloor = 0.004f;
+static double const kPeakHalfLifeSeconds = 3.0;
+
+static float const kTiltExponent = 0.3f;
+
+// Final shaping: <1 lifts quiet bars so small movements stay visible.
+static float const kOutputGamma = 0.75f;
 
 @interface AudioEngineManager ()
 
@@ -15,17 +27,18 @@ static NSUInteger const kFFTLog2n = 11;
 
 @property (nonatomic, copy) NSArray<NSURL *> *queueURLs;
 @property (nonatomic, assign) NSUInteger queueIndex;
-
-// The playlistId currently loaded into queueURLs. Used to detect the
-// redundant reload that fires when resolveActivePlaylistWithFallback picks
-// a default playlist: setting activePlaylistId re-triggers our own KVO,
-// but by then we've already loaded that exact playlist, so there's nothing
-// further to do.
 @property (nonatomic, copy, nullable) NSString *loadedPlaylistId;
 
 @property (nonatomic, assign) BOOL playing;
 
 @property (atomic, copy, readwrite, nullable) NSArray<NSNumber *> *latestSpectrumBins;
+
+// Auto-gain state. Read and written only on the tap thread.
+@property (nonatomic, assign) float smoothedPeak;
+
+// Main-thread only.
+@property (nonatomic, assign) BOOL resumeAfterInterruption;
+@property (nonatomic, assign) NSUInteger scheduleGeneration;
 
 // FFT setup - created once, reused for the lifetime of the engine.
 @property (nonatomic, assign) FFTSetup fftSetup;
@@ -47,8 +60,11 @@ static NSUInteger const kFFTLog2n = 11;
         _queueURLs = @[];
         _queueIndex = 0;
 
-        [self setUpAudioEngine];
+        // FFT first: the tap is installed (and can fire) inside
+        // setUpAudioEngine, and it needs the setup and window to exist.
         [self setUpFFT];
+        [self setUpAudioEngine];
+        [self registerForAudioNotifications];
 
         [self.packageManager addObserver:self
                                forKeyPath:@"activePlaylistId"
@@ -62,6 +78,7 @@ static NSUInteger const kFFTLog2n = 11;
 
 - (void)dealloc {
     [self.packageManager removeObserver:self forKeyPath:@"activePlaylistId"];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self tearDownTap];
     if (_fftSetup) {
         vDSP_destroy_fftsetup(_fftSetup);
@@ -111,12 +128,6 @@ static NSUInteger const kFFTLog2n = 11;
 #pragma mark - Playlist loading / hard cut
 
 - (void)reloadActivePlaylistAndHardCut {
-    // resolveActivePlaylistWithFallback: defaults to the first installed
-    // playlist when nothing has been explicitly chosen, and only returns
-    // nil when there's genuinely no playlist package installed. Note this
-    // may call setActivePlaylistId: under us, which re-triggers this method
-    // via our own KVO observation - the loadedPlaylistId check below makes
-    // that redundant second call a no-op.
     AmbientPlaylist *playlist = [self.packageManager resolveActivePlaylistWithFallback];
 
     if (playlist && [playlist.playlistId isEqualToString:self.loadedPlaylistId] && self.queueURLs.count > 0) {
@@ -155,6 +166,8 @@ static NSUInteger const kFFTLog2n = 11;
 
 - (void)play {
     if (self.queueURLs.count == 0) return;
+    [self ensureEngineRunning];
+    if (!self.engine.isRunning) return; // -[AVAudioPlayerNode play] raises if the engine is stopped
     [self.playerNode play];
     self.playing = YES;
 }
@@ -214,6 +227,11 @@ static NSUInteger const kFFTLog2n = 11;
         return;
     }
 
+    // Bump before stopping: stop can fire the previous file's completion
+    // handler, and that stale callback must not advance the queue.
+    self.scheduleGeneration += 1;
+    NSUInteger generation = self.scheduleGeneration;
+
     [self.playerNode stop];
 
     __weak typeof(self) weakSelf = self;
@@ -222,12 +240,15 @@ static NSUInteger const kFFTLog2n = 11;
                  completionCallbackType:AVAudioPlayerNodeCompletionDataPlayedBack
                  completionHandler:^(AVAudioPlayerNodeCompletionCallbackType callbackType) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf handleTrackFinished];
+            [weakSelf handleTrackFinishedForGeneration:generation];
         });
     }];
 
-    [self.playerNode play];
-    self.playing = YES;
+    [self ensureEngineRunning];
+    if (self.engine.isRunning) {
+        [self.playerNode play];
+        self.playing = YES;
+    }
 
     NSLog(@"[AudioEngineManager] now playing (%lu/%lu): %@",
           (unsigned long)self.queueIndex + 1, (unsigned long)self.queueURLs.count, url.lastPathComponent);
@@ -236,7 +257,8 @@ static NSUInteger const kFFTLog2n = 11;
     [self extractID3TagsForURL:url];
 }
 
-- (void)handleTrackFinished {
+- (void)handleTrackFinishedForGeneration:(NSUInteger)generation {
+    if (generation != self.scheduleGeneration) return; // stale: a newer schedule superseded this one
     if (!self.playing) return; // stopped manually, not a natural completion
     [self advanceQueueIndexForward:YES userInitiated:NO];
 }
@@ -330,13 +352,24 @@ static NSUInteger const kFFTLog2n = 11;
 }
 
 - (void)processPCMBuffer:(AVAudioPCMBuffer *)buffer {
-    if (!self.fftSetup || buffer.frameLength < kFFTFrameSize) return;
+    if (!self.fftSetup || !self.hannWindow) return;
+    if (buffer.frameLength == 0 || buffer.floatChannelData == NULL) return;
+
+    double sampleRate = buffer.format.sampleRate;
+    if (sampleRate <= 0.0) return;
 
     float *samples = buffer.floatChannelData[0];
     NSUInteger n = kFFTFrameSize;
 
+    // The tap's bufferSize is only a hint. If a short buffer arrives, zero-pad
+    // rather than dropping it (dropping would freeze the visualizer).
+    NSUInteger available = MIN((NSUInteger)buffer.frameLength, n);
+
     float windowed[kFFTFrameSize];
-    vDSP_vmul(samples, 1, self.hannWindow, 1, windowed, 1, n);
+    if (available < n) {
+        memset(windowed, 0, sizeof(windowed));
+    }
+    vDSP_vmul(samples, 1, self.hannWindow, 1, windowed, 1, available);
 
     float realp[kFFTFrameSize / 2];
     float imagp[kFFTFrameSize / 2];
@@ -345,51 +378,161 @@ static NSUInteger const kFFTLog2n = 11;
     vDSP_ctoz((DSPComplex *)windowed, 2, &splitComplex, 1, n / 2);
     vDSP_fft_zrip(self.fftSetup, &splitComplex, 1, kFFTLog2n, FFT_FORWARD);
 
-    float magnitudes[kFFTFrameSize / 2];
-    vDSP_zvmags(&splitComplex, 1, magnitudes, 1, n / 2);
+    float power[kFFTFrameSize / 2];
+    vDSP_zvmags(&splitComplex, 1, power, 1, n / 2);
 
-    NSArray<NSNumber *> *bins = [self logDownsampleMagnitudes:magnitudes count:n / 2];
-
-
-    self.latestSpectrumBins = bins;
+    self.latestSpectrumBins = [self spectrumBinsFromPower:power
+                                                     count:n / 2
+                                                sampleRate:sampleRate
+                                            bufferDuration:(double)available / sampleRate];
 }
 
-- (NSArray<NSNumber *> *)logDownsampleMagnitudes:(float *)magnitudes count:(NSUInteger)count {
-    NSMutableArray<NSNumber *> *bins = [NSMutableArray arrayWithCapacity:kSpectrumBinCount];
 
-    double minBin = 1.0;
-    double maxBin = (double)(count - 1);
-    double logMin = log2(minBin);
-    double logMax = log2(maxBin);
+- (NSArray<NSNumber *> *)spectrumBinsFromPower:(const float *)power
+                                          count:(NSUInteger)count
+                                     sampleRate:(double)sampleRate
+                                 bufferDuration:(double)duration {
+    double binWidth = sampleRate / (double)kFFTFrameSize; // Hz per FFT bin
+    double maxHz = MIN(kMaxBandHz, sampleRate * 0.5 * 0.98);
+    double logMin = log2(kMinBandHz);
+    double logMax = log2(maxHz);
+    float scale = 1.0f / (float)kFFTFrameSize; // rough amplitude normalization
 
-    float peak = FLT_MIN;
-
+    NSInteger lastIndex = (NSInteger)count - 1;
     float rawBins[kSpectrumBinCount];
-    for (NSUInteger b = 0; b < kSpectrumBinCount; b++) {
-        double t0 = logMin + (logMax - logMin) * ((double)b / kSpectrumBinCount);
-        double t1 = logMin + (logMax - logMin) * ((double)(b + 1) / kSpectrumBinCount);
-        NSUInteger start = MAX((NSUInteger)round(pow(2.0, t0)), 1);
-        NSUInteger end = MIN((NSUInteger)round(pow(2.0, t1)), count - 1);
-        if (end <= start) end = start + 1;
+    float peak = 0.f;
 
-        float sum = 0;
-        NSUInteger sampled = 0;
-        for (NSUInteger i = start; i < end && i < count; i++) {
-            sum += magnitudes[i];
-            sampled++;
+    for (NSUInteger b = 0; b < kSpectrumBinCount; b++) {
+        double f0 = pow(2.0, logMin + (logMax - logMin) * ((double)b / kSpectrumBinCount));
+        double f1 = pow(2.0, logMin + (logMax - logMin) * ((double)(b + 1) / kSpectrumBinCount));
+        double centerHz = sqrt(f0 * f1);
+        double p0 = f0 / binWidth; // band edges as fractional FFT-bin positions
+        double p1 = f1 / binWidth;
+
+        float amplitude;
+        if (p1 - p0 < 1.0) {
+            // Band is narrower than one FFT bin (the low end): interpolate the
+            // spectrum at the band's center instead of repeating one bin, so
+            // neighboring bars don't come out identical.
+            double pc = centerHz / binWidth;
+            NSInteger i0 = MIN(MAX((NSInteger)floor(pc), 1), lastIndex - 1);
+            float frac = (float)MIN(MAX(pc - (double)i0, 0.0), 1.0);
+            float a0 = sqrtf(power[i0]);
+            float a1 = sqrtf(power[i0 + 1]);
+            amplitude = a0 + (a1 - a0) * frac;
+        } else {
+            // Band spans one or more whole bins: RMS across them.
+            NSInteger first = MIN(MAX((NSInteger)ceil(p0), 1), lastIndex);
+            NSInteger last = MIN(MAX((NSInteger)floor(p1), first), lastIndex);
+            float sum = 0.f;
+            for (NSInteger i = first; i <= last; i++) {
+                sum += power[i];
+            }
+            amplitude = sqrtf(sum / (float)(last - first + 1));
         }
-        float avg = sampled > 0 ? sum / (float)sampled : 0.f;
-        float value = sqrtf(avg);
-        rawBins[b] = value;
-        if (value > peak) peak = value;
+
+        amplitude *= scale;
+        if (kTiltExponent > 0.f) {
+            amplitude *= powf((float)(centerHz / 500.0), kTiltExponent);
+        }
+
+        rawBins[b] = amplitude;
+        if (amplitude > peak) peak = amplitude;
     }
 
+    // Auto-gain: jump up to a new peak instantly, relax down over seconds.
+    float decay = (float)pow(0.5, duration / kPeakHalfLifeSeconds);
+    self.smoothedPeak = MAX(peak, self.smoothedPeak * decay);
+    float reference = MAX(self.smoothedPeak, kNoiseFloor);
+
+#if DEBUG
+    // Tuning aid for kNoiseFloor: ~1 line per second. Remove when settled.
+    static NSUInteger logCounter = 0;
+    if ((++logCounter % 10) == 0) {
+        NSLog(@"[Spectrum] framePeak=%.5f smoothedPeak=%.5f floor=%.5f", peak, self.smoothedPeak, kNoiseFloor);
+    }
+#endif
+
+    NSMutableArray<NSNumber *> *bins = [NSMutableArray arrayWithCapacity:kSpectrumBinCount];
     for (NSUInteger b = 0; b < kSpectrumBinCount; b++) {
-        float normalized = peak > 0.f ? rawBins[b] / peak : 0.f;
-        [bins addObject:@(normalized)];
+        float normalized = MIN(rawBins[b] / reference, 1.f);
+        [bins addObject:@(powf(normalized, kOutputGamma))];
     }
-
     return bins;
+}
+
+#pragma mark - Engine recovery (interruptions / route changes)
+
+- (void)registerForAudioNotifications {
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    [center addObserver:self
+               selector:@selector(handleAudioSessionInterruption:)
+                   name:AVAudioSessionInterruptionNotification
+                 object:[AVAudioSession sharedInstance]];
+    [center addObserver:self
+               selector:@selector(handleEngineConfigurationChange:)
+                   name:AVAudioEngineConfigurationChangeNotification
+                 object:self.engine];
+}
+
+- (void)ensureEngineRunning {
+    if (self.engine.isRunning) return;
+    NSError *error = nil;
+    if (![self.engine startAndReturnError:&error]) {
+        NSLog(@"[AudioEngineManager] failed to (re)start AVAudioEngine: %@", error);
+    }
+}
+
+// Phone call, Siri, another app taking the session. The system has already
+// stopped the engine by the time "began" arrives, so we only record intent.
+- (void)handleAudioSessionInterruption:(NSNotification *)notification {
+    NSUInteger type = [notification.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue];
+    NSUInteger options = [notification.userInfo[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue];
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (type == AVAudioSessionInterruptionTypeBegan) {
+            self.resumeAfterInterruption = self.playing;
+            self.playing = NO;
+            return;
+        }
+
+        // Ended
+        BOOL shouldResume = (options & AVAudioSessionInterruptionOptionShouldResume) != 0;
+        BOOL wasPlaying = self.resumeAfterInterruption;
+        self.resumeAfterInterruption = NO;
+        if (!shouldResume) return;
+
+        NSError *error = nil;
+        if (![[AVAudioSession sharedInstance] setActive:YES error:&error]) {
+            NSLog(@"[AudioEngineManager] failed to reactivate audio session: %@", error);
+        }
+        [self ensureEngineRunning];
+        if (wasPlaying) {
+            [self play];
+        }
+    });
+}
+
+// Output route or hardware format changed (headphones, AirPlay, sample rate).
+// The engine has stopped and the tap's format may be stale, so rebuild the
+// graph around the new format. If we were playing, restart the current track
+// (its scheduled audio does not survive the reconfiguration).
+- (void)handleEngineConfigurationChange:(NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.engine.isRunning) return;
+
+        BOOL wasPlaying = self.playing;
+        [self tearDownTap];
+
+        AVAudioFormat *format = [self.engine.mainMixerNode outputFormatForBus:0];
+        [self.engine connect:self.playerNode to:self.engine.mainMixerNode format:format];
+        [self installTap];
+        [self ensureEngineRunning];
+
+        if (wasPlaying) {
+            [self scheduleAndPlayCurrentIndex];
+        }
+    });
 }
 
 @end

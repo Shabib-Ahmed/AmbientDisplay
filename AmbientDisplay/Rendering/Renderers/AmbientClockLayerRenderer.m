@@ -9,12 +9,6 @@ static const CGFloat kDefaultFontSize = 72.0;
 static const CGFloat kDefaultPositionX = 0.5;
 static const CGFloat kDefaultPositionY = 0.5;
 
-// Simple container view that keeps its label centered at a normalized
-// (0-1, 0-1) point within its own bounds, regardless of how the
-// compositor resizes this renderer's view. Owning this as a small view
-// subclass (rather than doing the math in the renderer) means it stays
-// correct across rotation/resize without the renderer needing to observe
-// bounds changes itself.
 @interface AmbientClockContainerView : UIView
 @property (nonatomic, strong, readonly) UILabel *label;
 @property (nonatomic, assign) CGPoint normalizedPosition;
@@ -49,10 +43,6 @@ static const CGFloat kDefaultPositionY = 0.5;
 
 @end
 
-// Best-effort "#RRGGBB" / "#RRGGBBAA" parser. Anything that doesn't match
-// falls back to the caller-supplied default rather than failing the
-// whole renderer over a cosmetic parameter - same permissive posture the
-// rest of this header calls for ("all optional, with sensible defaults").
 static UIColor *AmbientColorFromHexString(id hexValue, UIColor *fallback) {
     if (![hexValue isKindOfClass:[NSString class]]) {
         return fallback;
@@ -71,10 +61,10 @@ static UIColor *AmbientColorFromHexString(id hexValue, UIColor *fallback) {
     }
     CGFloat a = 1.0, r, g, b;
     if (hex.length == 8) {
-        a = ((value >> 24) & 0xFF) / 255.0;
-        r = ((value >> 16) & 0xFF) / 255.0;
-        g = ((value >> 8) & 0xFF) / 255.0;
-        b = (value & 0xFF) / 255.0;
+        r = ((value >> 24) & 0xFF) / 255.0;
+        g = ((value >> 16) & 0xFF) / 255.0;
+        b = ((value >> 8) & 0xFF) / 255.0;
+        a = (value & 0xFF) / 255.0;
     } else {
         r = ((value >> 16) & 0xFF) / 255.0;
         g = ((value >> 8) & 0xFF) / 255.0;
@@ -106,11 +96,6 @@ static UIColor *AmbientColorFromHexString(id hexValue, UIColor *fallback) {
         format = params[@"format"];
     }
     NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
-    // A malformed pattern still yields a usable (if ugly) formatter -
-    // there's no reliable way to pre-validate an arbitrary date format
-    // string, so a bad "format" degrades the display rather than
-    // dropping the whole layer, consistent with every other parameter
-    // here.
     dateFormatter.dateFormat = format;
 
     NSString *fontName = kDefaultFontName;
@@ -163,11 +148,6 @@ static UIColor *AmbientColorFromHexString(id hexValue, UIColor *fallback) {
 - (void)start {
     [self tick];
     [self.timer invalidate];
-    // Ticks once a second; not phase-aligned to the system clock's
-    // second boundary, so the displayed value can lag by up to ~1s.
-    // Fine for an ambient/minute-or-second-granularity display - not
-    // worth the run-loop tolerance tricks a stopwatch-grade timer would
-    // need.
     self.timer = [NSTimer scheduledTimerWithTimeInterval:1.0
                                                     target:self
                                                   selector:@selector(tick)

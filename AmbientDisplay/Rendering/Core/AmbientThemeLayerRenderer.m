@@ -38,20 +38,29 @@ NS_ASSUME_NONNULL_BEGIN
         return nil;
     }
 
-    id<AmbientThemeLayerRenderer> renderer = [rendererClass rendererWithThemeLayer:themeLayer context:context];
+    // Privilege rule (see AmbientAudioDataSource.h): only the visualizer is
+    // ever handed an audio data source. Every other renderer - built-in or
+    // custom - gets a context with the source stripped. The texture cache is
+    // shared, so this costs nothing. New renderer classes are denied audio by
+    // default; opt them in here explicitly if that's ever intended.
+    AmbientThemeRenderContext *effectiveContext = context;
+    if (rendererClass != [AmbientVisualizerEffectRenderer class] && context.audioDataSource != nil) {
+        effectiveContext =
+            [[AmbientThemeRenderContext alloc] initWithThemeDirectoryURL:context.themeDirectoryURL
+                                                          audioDataSource:nil
+                                                             textureCache:context.textureCache];
+    }
+
+    id<AmbientThemeLayerRenderer> renderer = [rendererClass rendererWithThemeLayer:themeLayer
+                                                                             context:effectiveContext];
     if (renderer == nil) {
-        // rendererWithThemeLayer:context: already logs the specific
-        // reason (unrecognized type/malformed params) - this is just
-        // the factory-level trace of which layer that was.
         NSLog(@"AmbientThemeLayerRendererFactory: %@ declined layer of kind '%@'",
               NSStringFromClass(rendererClass), themeLayer.kind);
     }
     return renderer;
 }
 
-// The kind/type -> concrete class mapping itself. Kept separate from
-// rendererForThemeLayer:context: so the "which class handles this" logic
-// is testable independent of actually instantiating anything.
+
 + (nullable Class)rendererClassForThemeLayer:(AmbientThemeLayer *)themeLayer {
     NSString *kind = themeLayer.kind;
 
@@ -62,12 +71,6 @@ NS_ASSUME_NONNULL_BEGIN
         return [AmbientOverlayLayerRenderer class];
     }
     if ([kind isEqualToString:@"effect"]) {
-        // "type": "visualizer" is the one carve-out that gets an audio
-        // data source; every other effect type (built-in shorthands
-        // like particles/gradientWash/radialPulse/spriteAnimation, and
-        // third-party "custom" recipes) goes through the recipe
-        // renderer instead. See AmbientRecipeEffectRenderer.h /
-        // AmbientVisualizerEffectRenderer.h.
         id typeValue = themeLayer.parameters[@"type"];
         if ([typeValue isKindOfClass:[NSString class]] &&
             [(NSString *)typeValue isEqualToString:@"visualizer"]) {
@@ -75,11 +78,6 @@ NS_ASSUME_NONNULL_BEGIN
         }
         return [AmbientRecipeEffectRenderer class];
     }
-
-    // Unrecognized kind - the forward-compatibility seam documented on
-    // rendererWithThemeLayer:context: applies one level up here too: an
-    // unknown kind just produces no renderer for that one layer, the
-    // rest of the theme's layers are unaffected.
     return Nil;
 }
 

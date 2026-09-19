@@ -17,13 +17,6 @@ static NSString * const kPackageTypePlaylist = @"playlist";
 
 #pragma mark - AmbientThemeLayer
 
-// A layer is deliberately opaque beyond its "kind" - PackageManager has no
-// knowledge of what fields a given kind requires (a "particles" effect
-// might have "texture"/"count"/"speed"; a "clock" layer might have
-// "format"/"position"; a "custom" effect just points at a recipe file).
-// That interpretation belongs entirely to whatever renders each kind.
-// This keeps adding a new effect/layer kind a renderer-only change - no
-// PackageManager or manifest-schema change required.
 @interface AmbientThemeLayer ()
 - (instancetype)initWithKind:(NSString *)kind
                     parameters:(NSDictionary<NSString *, id> *)parameters;

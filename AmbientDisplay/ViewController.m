@@ -1,5 +1,8 @@
 #import "ViewController.h"
 #import "PackageManager.h"
+#import "AmbientThemeLayerCompositor.h"
+#import "AppDelegate.h"
+#import "AudioEngineManager.h"
 #import <AVFoundation/AVFoundation.h>
 
 @interface ViewController ()
@@ -8,10 +11,7 @@
 @property (nonatomic, strong) AVPlayerLooper *backgroundLooper;
 @property (nonatomic, strong) AVPlayerLayer *backgroundPlayerLayer;
 
-// The themeId currently loaded into the background layer. Guards against
-// the redundant reload that fires when resolveActiveThemeWithFallback
-// itself calls setActiveThemeId: under us - same KVO re-entrancy pattern
-// as AudioEngineManager's loadedPlaylistId.
+@property (nonatomic, strong) AmbientThemeLayerCompositor *themeLayerCompositor;
 @property (nonatomic, copy, nullable) NSString *loadedThemeId;
 
 @end
@@ -32,6 +32,13 @@
     self.backgroundPlayerLayer.frame = self.view.bounds;
     self.backgroundPlayerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
     [self.view.layer addSublayer:self.backgroundPlayerLayer];
+
+  
+    AppDelegate *appDelegate = (AppDelegate *)[UIApplication sharedApplication].delegate;
+    self.themeLayerCompositor = [[AmbientThemeLayerCompositor alloc] initWithFrame:self.view.bounds
+                                                                     audioDataSource:appDelegate.audioEngine];
+    self.themeLayerCompositor.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.view addSubview:self.themeLayerCompositor];
 
     [self.packageManager addObserver:self
                            forKeyPath:@"activeThemeId"
@@ -88,13 +95,14 @@
     if (!theme) {
         NSLog(@"[AmbientDisplay] No active theme to load");
         self.loadedThemeId = nil;
+        [self.themeLayerCompositor loadTheme:nil];
         return;
     }
 
     self.loadedThemeId = theme.themeId;
 
     AVQueuePlayer *player = [[AVQueuePlayer alloc] init];
-    player.muted = YES; // background video has no audio of its own - AudioEngineManager owns sound
+    player.muted = YES;
 
     AVPlayerItem *item = [AVPlayerItem playerItemWithURL:theme.backgroundVideoURL];
     self.backgroundLooper = [AVPlayerLooper playerLooperWithPlayer:player templateItem:item];
@@ -102,6 +110,9 @@
     self.backgroundPlayer = player;
     self.backgroundPlayerLayer.player = player;
     [player play];
+
+
+    [self.themeLayerCompositor loadTheme:theme];
 
     NSLog(@"[AmbientDisplay] loaded background video for theme %@: %@",
           theme.themeId, theme.backgroundVideoURL.lastPathComponent);

@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
+#import "AmbientAudioDataSource.h"
 
 @class PackageManager;
 @class AudioEngineManager;
@@ -23,7 +24,7 @@ typedef NS_ENUM(NSInteger, RepeatMode) {
 
 @end
 
-@interface AudioEngineManager : NSObject
+@interface AudioEngineManager : NSObject <AmbientAudioDataSource>
 
 @property (nonatomic, weak, nullable) id<AudioEngineManagerDelegate> delegate;
 

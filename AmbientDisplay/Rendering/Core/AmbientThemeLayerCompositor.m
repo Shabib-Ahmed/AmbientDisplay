@@ -21,10 +21,6 @@ NS_ASSUME_NONNULL_BEGIN
         _audioDataSource = audioDataSource;
         _activeRenderers = @[];
         self.backgroundColor = [UIColor clearColor];
-        // Ambient display - nothing in the current renderer set is
-        // interactive, and package-supplied overlay content is
-        // deliberately locked down (no JS, no navigation) rather than
-        // meant to receive touches.
         self.userInteractionEnabled = NO;
     }
     return self;
@@ -47,18 +43,10 @@ NS_ASSUME_NONNULL_BEGIN
     NSMutableArray<id<AmbientThemeLayerRenderer>> *renderers =
         [NSMutableArray arrayWithCapacity:theme.layers.count];
 
-    // theme.layers[0] is built (and added) first, so it lands at the
-    // bottom of the stack, directly above the background video; each
-    // subsequent entry's view is added on top of the ones before it via
-    // addSubview:, which is exactly the ordering contract this method
-    // documents on AmbientThemeLayerCompositor.h.
     for (AmbientThemeLayer *themeLayer in theme.layers) {
         id<AmbientThemeLayerRenderer> renderer =
             [AmbientThemeLayerRendererFactory rendererForThemeLayer:themeLayer context:context];
         if (renderer == nil) {
-            // Logged inside the factory - an unrecognized/malformed
-            // layer is simply skipped, the rest of the theme is
-            // unaffected.
             continue;
         }
 
@@ -74,9 +62,6 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)tearDownActiveRenderers {
-    // Same hard-cut philosophy as playlist/background-video switching:
-    // no diffing against the previous theme, just stop and remove
-    // everything before anything new gets built.
     for (id<AmbientThemeLayerRenderer> renderer in self.activeRenderers) {
         [renderer stop];
         [renderer.view removeFromSuperview];

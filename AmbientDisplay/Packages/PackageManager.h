@@ -4,10 +4,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface AmbientThemeLayer : NSObject
 
-// Deliberately opaque beyond "kind" - PackageManager doesn't know what
-// fields a given kind requires (a "particles" effect vs a "clock" vs a
-// "custom" recipe reference all look different). Interpreting parameters
-// for a given kind is entirely up to whatever renders that kind.
 @property (nonatomic, copy, readonly) NSString *kind;
 @property (nonatomic, copy, readonly) NSDictionary<NSString *, id> *parameters;
 

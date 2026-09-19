@@ -43,7 +43,6 @@ static const CGFloat kMaxDecodedDimension = 4096;
 
     NSURL *resolvedURL = [self resolvedURLForRelativePath:relativePath];
     if (!resolvedURL) {
-        // Reason already logged in resolvedURLForRelativePath:.
         return nil;
     }
 
@@ -97,10 +96,6 @@ static const CGFloat kMaxDecodedDimension = 4096;
 
 #pragma mark - Path resolution / containment
 
-// Resolves relativePath against themeDirectoryURL and verifies the
-// result is still contained within it - rejects "..", absolute paths,
-// and (via standardization) symlink-style escapes, rather than trusting
-// the string at face value.
 - (nullable NSURL *)resolvedURLForRelativePath:(NSString *)relativePath {
     if ([relativePath hasPrefix:@"/"]) {
         NSLog(@"[AmbientTextureCache] rejected absolute path: %@", relativePath);

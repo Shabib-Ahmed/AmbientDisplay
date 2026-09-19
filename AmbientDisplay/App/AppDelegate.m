@@ -8,6 +8,7 @@
 #import "AppDelegate.h"
 #import "PackageManager.h"
 #import "AudioEngineManager.h"
+#import <AVFoundation/AVFoundation.h>
 
 @interface AppDelegate ()
 
@@ -32,6 +33,17 @@
     PackageManager *packageManager = [PackageManager sharedManager];
     [packageManager reloadInstalledPackages];
     [packageManager resolveActiveThemeWithFallback];
+
+    // 2b. Configure the audio session *before* the engine exists. The default
+    //     category (SoloAmbient) follows the silent switch and stops on lock;
+    //     a desk clock wants Playback. AudioEngineManager's initializer
+    //     starts the engine, so this must come first.
+    NSError *sessionError = nil;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    if (![session setCategory:AVAudioSessionCategoryPlayback error:&sessionError] ||
+        ![session setActive:YES error:&sessionError]) {
+        NSLog(@"[AppDelegate] audio session setup failed: %@", sessionError);
+    }
 
     // 3. Own playback for the app's whole lifetime. AudioEngineManager
     //    observes activePlaylistId via KVO and hard-cuts into whatever
