@@ -4,17 +4,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-// STUB: handles every "kind": "effect" layer except "type": "visualizer"
-// (matches the factory's dispatch rule), and produces a real transparent
-// view so it's safe to insert into the compositor stack today. Still
-// TODO, all per AmbientRecipeEffectRenderer.h:
-//   - call [AmbientEffectRecipeLoader recipeForThemeLayer:themeDirectoryURL:]
-//     to resolve the built-in shorthand or "custom" recipe file into an
-//     AmbientEffectRecipe
-//   - walk recipe.primitives and build a CALayer per primitive
-//     (particle emitter / gradient wash / radial pulse / sprite
-//     animation), keeping start/stop in sync with whatever's
-//     animatable (emitter layers, CABasicAnimations, etc.)
+
 @interface AmbientRecipeEffectRenderer ()
 @property (nonatomic, strong) UIView *stubView;
 @end
