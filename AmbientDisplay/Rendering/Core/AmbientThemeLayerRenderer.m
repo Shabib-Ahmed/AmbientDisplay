@@ -2,9 +2,7 @@
 #import "PackageManager.h"
 #import "AmbientTextureCache.h"
 #import "AmbientClockLayerRenderer.h"
-#import "AmbientOverlayLayerRenderer.h"
-#import "AmbientRecipeEffectRenderer.h"
-#import "AmbientVisualizerEffectRenderer.h"
+#import "AmbientShaderEffectRenderer.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -38,21 +36,8 @@ NS_ASSUME_NONNULL_BEGIN
         return nil;
     }
 
-    // Privilege rule (see AmbientAudioDataSource.h): only the visualizer is
-    // ever handed an audio data source. Every other renderer - built-in or
-    // custom - gets a context with the source stripped. The texture cache is
-    // shared, so this costs nothing. New renderer classes are denied audio by
-    // default; opt them in here explicitly if that's ever intended.
-    AmbientThemeRenderContext *effectiveContext = context;
-    if (rendererClass != [AmbientVisualizerEffectRenderer class] && context.audioDataSource != nil) {
-        effectiveContext =
-            [[AmbientThemeRenderContext alloc] initWithThemeDirectoryURL:context.themeDirectoryURL
-                                                          audioDataSource:nil
-                                                             textureCache:context.textureCache];
-    }
-
     id<AmbientThemeLayerRenderer> renderer = [rendererClass rendererWithThemeLayer:themeLayer
-                                                                             context:effectiveContext];
+                                                                             context:context];
     if (renderer == nil) {
         NSLog(@"AmbientThemeLayerRendererFactory: %@ declined layer of kind '%@'",
               NSStringFromClass(rendererClass), themeLayer.kind);
@@ -67,16 +52,8 @@ NS_ASSUME_NONNULL_BEGIN
     if ([kind isEqualToString:@"clock"]) {
         return [AmbientClockLayerRenderer class];
     }
-    if ([kind isEqualToString:@"overlay"]) {
-        return [AmbientOverlayLayerRenderer class];
-    }
     if ([kind isEqualToString:@"effect"]) {
-        id typeValue = themeLayer.parameters[@"type"];
-        if ([typeValue isKindOfClass:[NSString class]] &&
-            [(NSString *)typeValue isEqualToString:@"visualizer"]) {
-            return [AmbientVisualizerEffectRenderer class];
-        }
-        return [AmbientRecipeEffectRenderer class];
+        return [AmbientShaderEffectRenderer class];
     }
     return Nil;
 }

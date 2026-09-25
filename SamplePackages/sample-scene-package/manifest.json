@@ -1,51 +1,41 @@
 {
-    "packageId": "com.example.rainynight",
-    "type": "theme",
-    "theme": {
-        "displayName": "Rainy Night",
-        "weatherTags": ["rain", "storm"],
-        "background": {
-            "video": "test.mp4"
-        },
-        "layers": [
-            {
-                "kind": "effect",
-                "type": "particles",
-                "texture": "textures/raindrop.png",
-                "count": 60,
-                "speed": 0.4,
-                "blendMode": "screen"
-            },
-            {
-                "kind": "clock",
-                "format": "h:mm",
-                "font": "Helvetica-Light",
-                "size": 204,
-                "color": "#ffffff80",
-                "position": { "x": 0.5, "y": 0.5 }
-            },
-            {
-                "kind": "effect",
-                "type": "custom",
-                "recipe": "effects/glow.json"
-            },
-            {
-                "kind": "effect",
-                "type": "visualizer",
-                "style": "bars",
-                "color": "#66CCFF99",
-                "barCount": 32,
-                "smoothing": 0.85,
-                "sensitivity": 1.0,
-                "gap": 0.35,
-                "cornerRadius": 2,
-                "frame": { "x": 0.1, "y": 0.78, "width": 0.8, "height": 0.16 }
-            },
-            {
-                "kind": "overlay",
-                "html": "index.html",
-                "css": "overlay.css"
-            }
+  "packageId": "sample-scene-package",
+  "type": "theme",
+  "theme": {
+    "displayName": "Sample Scene",
+    "background": {
+      "video": "test.mp4"
+    },
+    "weatherTags": [],
+    "layers": [
+      {
+        "kind": "effect",
+        "shaders": [
+          {
+            "path": "Shaders/GradientWash.metal",
+            "params": { "x": 0.58, "y": 0.78, "z": 0.7853981634, "w": 0.02 }
+          }
         ]
-    }
+      },
+      {
+        "kind": "clock",
+        "format": "h:mm",
+        "font": "HelveticaNeue-Thin",
+        "size": 72,
+        "color": "#FFFFFF",
+        "position": { "x": 0.5, "y": 0.5 }
+      },
+      {
+        "kind": "effect",
+        "sensitivity": 1.0,
+        "shaders": [
+          {
+            "path": "Shaders/Bars.metal",
+            "inputs": ["audioLevels"],
+            "params": { "x": 0.35, "y": 0.3, "z": 0.03, "w": 0.0 }
+          }
+        ]
+      }
+    ]
+  }
 }

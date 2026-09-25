@@ -3,8 +3,6 @@
 NS_ASSUME_NONNULL_BEGIN
 
 // Reject any file above this size before even attempting to decode it -
-// this is what keeps a tiny-but-malicious file from ballooning into a
-// huge in-memory image.
 static const unsigned long long kMaxFileSizeBytes = 10 * 1024 * 1024; // 10 MB
 
 // Reject anything that decodes larger than this on either axis.
