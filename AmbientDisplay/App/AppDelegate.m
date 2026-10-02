@@ -8,11 +8,13 @@
 #import "AppDelegate.h"
 #import "PackageManager.h"
 #import "AudioEngineManager.h"
+#import "AmbientWeatherThemeController.h"
 #import <AVFoundation/AVFoundation.h>
 
 @interface AppDelegate ()
 
 @property (nonatomic, strong, readwrite) AudioEngineManager *audioEngine;
+@property (nonatomic, strong, readwrite) AmbientWeatherThemeController *weatherController;
 
 @end
 
@@ -59,7 +61,39 @@
     // 5. Keep the display awake indefinitely so the desk clock stays illuminated
     [UIApplication sharedApplication].idleTimerDisabled = YES;
 
+    // 6. Weather-driven theme switching. Acts only while
+    //    packageManager.weatherAutoTheme is YES (observed live). Created after
+    //    the view controller exists so a switch is picked up by its KVO
+    //    observation of activeThemeId. Foreground-only: no Background Modes.
+    //    The city comes from weather-mapping.json (no GPS, no permission prompt).
+    NSString *baseDir = [[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"]
+                         stringByAppendingPathComponent:@"AmbientDisplay"];
+    self.weatherController = [[AmbientWeatherThemeController alloc] initWithPackageManager:packageManager
+                                                                              baseDirectory:baseDir];
+    [self.weatherController start];
+
+#if DEBUG
+    // Debug: tap anywhere to flip between day-sunny and day-rainy.
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                          action:@selector(debugTap)];
+    tap.cancelsTouchesInView = NO;
+    [self.window addGestureRecognizer:tap];
+#endif
+
     return YES;
+}
+
+#if DEBUG
+- (void)debugTap {
+    static BOOL rainy = NO;
+    rainy = !rainy;
+    [self.weatherController debugApplyTag:rainy ? @"day-rainy" : @"day-sunny"];
+}
+#endif
+
+- (void)applicationDidBecomeActive:(UIApplication *)application {
+    // Timers don't fire while suspended; catch up on return to the foreground.
+    [self.weatherController refreshNow];
 }
 
 

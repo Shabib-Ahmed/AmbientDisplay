@@ -45,14 +45,3 @@ vertex VertexOut ambient_fullscreen_vertex(uint vertexID [[vertex_id]]) {
     return out;
 }
 
-// Fragment-function naming convention (resolves the "how does the cache
-// find *the* fragment function" TODO): each package shader file
-// declares exactly one fragment_* function, named "fragment_" followed
-// by its .metal file's basename lowercased - e.g. Bars.metal must
-// define `fragment_bars`, GradientWash.metal must define
-// `fragment_gradientwash`. AmbientShaderLibraryCache derives this name
-// from shaderPath's last path component; see that file.
-//
-// This file must be added to the Xcode target's Metal compile sources
-// (it's the one shader source that ships in the app bundle rather than
-// a package - see AmbientShaderLibraryCache.h for why).

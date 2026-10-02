@@ -1,6 +1,6 @@
 #import <UIKit/UIKit.h>
 
-@class AudioEngineManager;
+@class AudioEngineManager, AmbientWeatherThemeController;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -8,6 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, strong) UIWindow *window;
 @property (nonatomic, strong, readonly) AudioEngineManager *audioEngine;
+@property (nonatomic, strong, readonly) AmbientWeatherThemeController *weatherController;
 
 @end
 

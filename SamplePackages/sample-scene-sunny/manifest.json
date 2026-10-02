@@ -1,12 +1,12 @@
 {
-  "packageId": "sample-scene-package",
+  "packageId": "sample-scene-sunny",
   "type": "theme",
   "theme": {
     "displayName": "Sample Scene",
     "background": {
       "video": "test.mp4"
     },
-    "weatherTags": [],
+    "weatherTags": ["day-sunny"],
     "layers": [
       {
         "kind": "effect",

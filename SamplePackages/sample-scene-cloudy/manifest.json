@@ -1,0 +1,30 @@
+{
+  "packageId": "sample-scene-cloudy",
+  "type": "theme",
+  "theme": {
+    "displayName": "Sample Scene (cloudy)",
+    "background": {
+      "video": "test.mp4"
+    },
+    "weatherTags": ["day-cloudy"],
+    "layers": [
+      {
+        "kind": "effect",
+        "shaders": [
+          {
+            "path": "Shaders/Particles.metal",
+            "params": { "x": 12.0, "y": 0.1, "z": 0.6, "w": 0.15 }
+          }
+        ]
+      },
+      {
+        "kind": "clock",
+        "format": "h:mm",
+        "font": "HelveticaNeue-Thin",
+        "size": 72,
+        "color": "#FFFFFF",
+        "position": { "x": 0.5, "y": 0.5 }
+      }
+    ]
+  }
+}
