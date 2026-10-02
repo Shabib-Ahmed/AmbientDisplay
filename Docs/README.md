@@ -211,6 +211,10 @@ Docs/               README.md, WEATHER_TAGS.md
 
 On any change, update in that order. Nothing checks that 1 and 3 match.
 
+`AmbientShaderTypes.h` is included from both Objective-C and Metal source, so
+it may only use types that mean the same in both (simd types; no ObjC classes,
+no Metal-only keywords).
+
 ## 8. Gotchas
 
 - **Edits to `SamplePackages/` do nothing on a device** until pushed with

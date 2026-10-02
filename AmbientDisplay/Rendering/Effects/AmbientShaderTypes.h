@@ -1,6 +1,9 @@
 #ifndef AmbientShaderTypes_h
 #define AmbientShaderTypes_h
 
+// Included from both Objective-C and Metal source: use only types that mean
+// the same in both (simd types; no ObjC classes, no Metal-only keywords).
+
 
 #include <simd/simd.h>
 

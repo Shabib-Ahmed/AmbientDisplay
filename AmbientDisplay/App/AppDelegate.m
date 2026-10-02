@@ -65,7 +65,7 @@
     //    packageManager.weatherAutoTheme is YES (observed live). Created after
     //    the view controller exists so a switch is picked up by its KVO
     //    observation of activeThemeId. Foreground-only: no Background Modes.
-    //    The city comes from weather-mapping.json (no GPS, no permission prompt).
+    //    The city comes from weather-settings.json (no GPS, no permission prompt).
     NSString *baseDir = [[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"]
                          stringByAppendingPathComponent:@"AmbientDisplay"];
     self.weatherController = [[AmbientWeatherThemeController alloc] initWithPackageManager:packageManager

@@ -30,6 +30,7 @@ build/Build/
 entitlements_test.plist
 entitlements_binary.plist.ldid.entitlements.plist
 
-.device_countainer_path
 
+
+.device_container_path
 ambient_syslog.txt
