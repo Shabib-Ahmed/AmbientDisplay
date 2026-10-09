@@ -38,6 +38,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 
 - (void)reloadInstalledPackages;
+- (NSString *)packagesDirPath;
 
 @property (nonatomic, copy, readonly) NSArray<AmbientTheme *> *installedThemes;
 @property (nonatomic, copy, readonly) NSArray<AmbientPlaylist *> *installedPlaylists;

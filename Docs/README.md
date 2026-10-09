@@ -2,7 +2,7 @@
 
 Full-screen ambient display for old iPhones: background video, a clock,
 Metal shader effects, audio playback. Content ships as packages that are
-pushed to the device.
+pushed to the device or imported from a zip in the app.
 
 ## 1. Packages
 
@@ -23,10 +23,22 @@ the device, not from the app bundle. Each package has a `manifest.json` with a
 }
 ```
 
-- Theme ID is derived as `packageId + ".theme"`. Renaming a package changes it.
+A playlist package has no theme section; its tracks live under `Playlist/`:
+
+```json
+{
+  "packageId": "sample-playlist-package",
+  "type": "playlist",
+  "playlist": { "tracks": ["track1.mp3"] }
+}
+```
+
+- Theme ID is derived as `packageId + ".theme"`, playlist ID as
+  `packageId + ".playlist"`. Renaming a package changes it.
 - Video and shaders live under the package's `Theme/` directory.
 - `state.json` (same directory as `Packages/`) stores `activeThemeId`,
   `activePlaylistId` and `settings.weatherAutoTheme`.
+- A playlist has no display name; the settings menu shows its `packageId`.
 
 ## 2. Layers
 
@@ -96,7 +108,7 @@ basename, nothing else). A wrong name fails that layer only (logged).
 | `audioLevels` | Works. R32Float, width = bin count (default 64), height 1. All zeros if there is no audio source. |
 | `original` | Reserved, not bound. |
 | `sourceVideo` | Reserved, not bound. |
-| package texture path | Not supported (see section 8). |
+| package texture path | Not supported (see section 9). |
 
 Audio is available to any effect pass. Smoothing (attack/release, resampling)
 is native in `AmbientAudioLevelsTextureProvider`.
@@ -123,7 +135,7 @@ In `SamplePackages/sample-scene-*/Theme/Shaders/`.
 ## 5. Weather theme switching
 
 Switches the active theme to match the weather at a user-set city.
-Foreground only. No location permission and no Background Modes.
+Foreground only. No location permission and no Background Modes beyond audio.
 
 **Flow**
 
@@ -160,17 +172,17 @@ launch, themes with an unknown tag log a warning.
   `applicationDidBecomeActive:`.
 - Acts only while `PackageManager.weatherAutoTheme` is YES. The property is
   observed, so turning it on evaluates the cached conditions and fetches fresh ones.
-- Default for `weatherAutoTheme` is NO. There is no UI to change it yet; edit `state.json`.
+- Default for `weatherAutoTheme` is NO. Toggle it in the settings menu
+  (section 10).
 
 **Location:** `Documents/AmbientDisplay/weather-settings.json`, read on every poll.
-Written with a Cleveland, Ohio placeholder if missing, never overwritten.
+Written with a Cleveland, Ohio placeholder if missing. Choose a city in the
+settings menu, which overwrites the `location` entry (other keys are kept)
+and triggers an immediate refresh.
 
 ```json
 { "location": { "name": "Cleveland, Ohio", "latitude": 41.4993, "longitude": -81.6944 } }
 ```
-
-**Debug:** in DEBUG builds, tapping the screen toggles between `day-sunny` and
-`day-rainy`. The first tap suspends real polling until relaunch.
 
 **Tests:** `Scripts/weather_test.sh [lat lon]` builds the tag and service code
 on macOS, checks the code-to-tag mapping, and runs one live fetch.
@@ -179,10 +191,13 @@ on macOS, checks the code-to-tag mapping, and runs one live fetch.
 
 ```
 AmbientDisplay/
-├── App/            AppDelegate (owns audio engine and weather controller), main
+├── App/            AppDelegate (owns audio engine and weather controller,
+│                   settings long-press, open-in-zip handler), main
 ├── Audio/          AudioEngineManager
 ├── Packages/       PackageManager (themes, playlists, state.json)
-├── ViewController  Background video, observes activeThemeId
+├── Settings/       AmbientSettingsViewController, AmbientLocationPickerViewController,
+│                   AmbientLocationStore, AmbientPackageImporter, AmbientZipExtractor
+├── ViewController  Background video, observes activeThemeId and installedThemes
 ├── Weather/
 │   ├── AmbientWeatherConditions     Raw conditions (WMO code, isDay)
 │   ├── AmbientWeatherService        Open-Meteo client
@@ -195,9 +210,12 @@ AmbientDisplay/
     ├── Renderers/  AmbientClockLayerRenderer, AmbientShaderEffectRenderer
     └── Shaders/    AmbientShaderCommon.metal
 
-SamplePackages/     sample-playlist-package, sample-scene-sunny, sample-scene-rainy
-Scripts/            push_package.sh, container_path.sh, deployDebug.sh, weather_test.sh/.m
+SamplePackages/     sample-playlist-package, sample-scene-sunny, sample-scene-rainy, sample-scene-cloudy
+Scripts/            push_package.sh, container_path.sh, deployDebug.sh, deployProd.sh,
+                    weather_test.sh/.m
 Docs/               README.md, WEATHER_TAGS.md
+entitlements.plist  Used to ad-hoc sign the IPA (jailbroken devices)
+dist/               deployProd.sh output (AmbientDisplay-<version>.ipa), not committed
 ```
 
 ## 7. Keep in sync by hand
@@ -218,21 +236,34 @@ no Metal-only keywords).
 ## 8. Gotchas
 
 - **Edits to `SamplePackages/` do nothing on a device** until pushed with
-  `Scripts/push_package.sh <path>`. The script uses `rsync -avzi` and does not
-  delete packages removed from the repo; remove those on the device by hand.
-- **Packages load only at launch.** Backgrounding is not relaunching; force-quit.
+  `Scripts/push_package.sh <path>` or imported as a zip. The script uses
+  `rsync -avzi` and does not delete packages removed from the repo; remove
+  those on the device by hand.
+- **Packages load at launch and after an in-app import.** A package pushed with
+  `push_package.sh` still needs a force-quit and relaunch (backgrounding is
+  not relaunching).
 - **`state.json` pins the active theme** across launches. It only falls back to
   the first installed theme if `activeThemeId` is unset or not installed. If a
   pushed package seems ignored, check `state.json` first. It also holds
   `weatherAutoTheme`.
 - **Manifest shape matters.** `themeFromDict:` silently drops themes that do not
-  match the schema in section 1.
+  match the schema in section 1. Import runs the same parser first and rejects
+  a package that would be dropped.
 - **Metal include path:** `AmbientShaderCommon.metal` must use
   `#include "../Effects/AmbientShaderTypes.h"`. Header Search Paths do not
   reliably apply to the Metal frontend.
+- **Uninstalling deletes the packages.** The app's `Documents/` goes with it,
+  including `Packages/`, `state.json` and `weather-settings.json`.
+  `deployProd.sh` never uninstalls; `deployDebug.sh` falls back to it.
 - **Device access:** over a USB tunnel (`iproxy 2222 22`), SSH is
   `ssh -p 2222 root@localhost` and scp uses `-P 2222`. The app container path
   changes on reinstall; `find /var/mobile/Containers/Data/Application -maxdepth 4 -type d -path '*Documents/AmbientDisplay'`.
+- **Document type registration is cached by iOS.** After changing
+  `CFBundleDocumentTypes` in `Info.plist`, delete and reinstall the app or
+  "Open in AmbientDisplay" may not appear.
+- **`libcompression`** is needed by the zip extractor. Newer Xcode auto-links it;
+  if the link fails with `_compression_stream_init`, add `libcompression.tbd`
+  under Link Binary With Libraries.
 
 ## 9. Open items
 
@@ -241,10 +272,80 @@ no Metal-only keywords).
 - **Audio texture provider** is per renderer; two audio layers duplicate the work.
 - **Shader compilation** is synchronous.
 - **Shader security** is an assumption (worst case is GPU cost), not verified.
-  Confirm before loading third-party packages.
+  Confirm before loading third-party packages. Zip import makes this more
+  relevant, since anyone can now hand the app a package.
 - **Prelude duplication** (section 7) has no automated check.
-- **Settings menu:** not built. Needs the weather toggle, city picker, theme list
-  and package import (source, format, validation, live reload). Manual theme
-  selection must set `weatherAutoTheme = NO`.
+- **Package management:** no way to delete a package from the UI; playlists have
+  no display name.
+- **Zip import:** no zip64, encryption or symlinks; CRC32 is not verified.
+  Replacing the *active playlist* in place does not restart audio until it is
+  reselected or the app relaunches (`AudioEngineManager` only reacts to
+  `activePlaylistId` changing).
 - **Weather:** day/night changes can lag up to about an hour (45 minute poll plus
   Open-Meteo's 15 minute update step). No wind condition (not in WMO codes).
+
+## 10. Settings menu
+
+Long-press anywhere on the screen for about a second. A modal
+`AmbientSettingsViewController` opens with four sections:
+
+| Section | What it does |
+|---|---|
+| Weather | "Match theme to weather" switch (`PackageManager.weatherAutoTheme`), and a location row that opens a city search (Open-Meteo geocoding, no key). |
+| Theme | Installed themes with a checkmark on the active one. Selectable only while weather matching is off, so a manual pick can never fight the controller. |
+| Music | Installed playlists (shown by `packageId`); picking one calls `setActivePlaylistId:error:`. |
+| Packages | "Import Package (.zip)…" opens the system file picker. |
+
+The table observes `PackageManager`, so checkmarks follow theme changes made by
+the weather controller while the screen is open.
+
+### Importing a package
+
+Two ways in, same pipeline (`AmbientPackageImporter`):
+
+- **From the settings menu:** the file picker, for a zip saved somewhere Files can see.
+- **Open in AmbientDisplay:** AirDrop or any share sheet (Filza too) lists the
+  app for `.zip` files. `AppDelegate application:openURL:options:` imports it
+  and shows the result alert. This is the easier route on iOS 12, where saving
+  an AirDropped zip to Files is unreliable. Needs the `CFBundleDocumentTypes`
+  entry in `Info.plist` (`public.zip-archive`, `com.pkware.zip-archive`).
+
+Import steps:
+
+1. Extract to a staging directory in `tmp` (`AmbientZipExtractor`). Rejects
+   `..` and absolute paths, backslashes, symlinks, encrypted and zip64 archives,
+   more than 4096 entries or 1.5 GB extracted. Skips `__MACOSX`, `.DS_Store`, `._*`.
+2. Find `manifest.json` at the zip root, or inside exactly one top-level folder
+   (what Finder's Compress produces).
+3. Validate by running the real `PackageManager` parser on a throwaway instance.
+   A package that would not load (bad manifest, missing video or tracks) is
+   rejected before it touches `Packages/`.
+4. Require a safe `packageId` (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`).
+5. Install into `Packages/<packageId>`. If a package with the same `packageId`
+   is already installed (matched by manifest, not folder name) it is replaced.
+6. Reload `PackageManager` on the main queue. `ViewController` observes
+   `installedThemes`, so a replaced active theme reloads immediately.
+
+## 11. Building and releasing
+
+```bash
+Scripts/deployDebug.sh               # Debug build, install; falls back to uninstall+install
+Scripts/deployProd.sh                # Release build, dist/AmbientDisplay-<version>.ipa, install
+Scripts/deployProd.sh --no-install   # Release IPA only (for a GitHub release)
+```
+
+Both scripts build with `CODE_SIGNING_ALLOWED=NO`, ad-hoc sign with
+`entitlements.plist`, and zip a `Payload/` into an IPA. This only installs on
+jailbroken devices (via `ideviceinstaller`). `deployProd.sh` reads the version
+from the built app, so bump `MARKETING_VERSION` (and the build number) in Xcode
+before releasing.
+
+Releasing, from a clean working tree on the release branch:
+
+```bash
+Scripts/deployProd.sh --no-install
+git tag -a v1.0 -m "AmbientDisplay 1.0"
+git push origin HEAD --follow-tags
+gh release create v1.0 dist/AmbientDisplay-1.0.ipa \
+    --title "AmbientDisplay 1.0" --notes-file RELEASE_NOTES_1.0.md
+```

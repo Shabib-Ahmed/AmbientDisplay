@@ -9,12 +9,16 @@
 #import "PackageManager.h"
 #import "AudioEngineManager.h"
 #import "AmbientWeatherThemeController.h"
+#import "AmbientSettingsViewController.h"
+#import "AmbientLocationStore.h"
+#import "AmbientPackageImporter.h"
 #import <AVFoundation/AVFoundation.h>
 
 @interface AppDelegate ()
 
 @property (nonatomic, strong, readwrite) AudioEngineManager *audioEngine;
 @property (nonatomic, strong, readwrite) AmbientWeatherThemeController *weatherController;
+@property (nonatomic, strong) AmbientLocationStore *locationStore;
 
 @end
 
@@ -72,24 +76,78 @@
                                                                               baseDirectory:baseDir];
     [self.weatherController start];
 
-#if DEBUG
-    // Debug: tap anywhere to flip between day-sunny and day-rainy.
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
-                                                                          action:@selector(debugTap)];
-    tap.cancelsTouchesInView = NO;
-    [self.window addGestureRecognizer:tap];
-#endif
+    // 7. Settings. Long-press anywhere opens the settings menu. This replaces
+    //    the old DEBUG tap-to-toggle-weather gesture, which is gone.
+    //    allowableMovement is generous because a finger held on a phone
+    //    sitting on a desk drifts well past the 10pt default over a full second,
+    //    which silently cancels the recognizer.
+    self.locationStore = [[AmbientLocationStore alloc] initWithBaseDirectory:baseDir];
+    UILongPressGestureRecognizer *press =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(openSettings:)];
+    press.minimumPressDuration = 0.8;
+    press.allowableMovement = 60;
+    press.cancelsTouchesInView = NO;
+    [self.window addGestureRecognizer:press];
 
     return YES;
 }
 
-#if DEBUG
-- (void)debugTap {
-    static BOOL rainy = NO;
-    rainy = !rainy;
-    [self.weatherController debugApplyTag:rainy ? @"day-rainy" : @"day-sunny"];
+- (void)openSettings:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) {
+        return;
+    }
+    NSLog(@"[AppDelegate] long press recognized");
+
+    UIViewController *root = self.window.rootViewController;
+    if (root.presentedViewController) {
+        NSLog(@"[AppDelegate] settings already presented, ignoring");
+        return;
+    }
+
+    AmbientSettingsViewController *settings =
+        [[AmbientSettingsViewController alloc] initWithPackageManager:[PackageManager sharedManager]
+                                                    weatherController:self.weatherController
+                                                        locationStore:self.locationStore];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:settings];
+    [root presentViewController:nav animated:YES completion:nil];
 }
-#endif
+
+// AirDrop / Filza / share-sheet "Open in AmbientDisplay" for a .zip package.
+// Needs the CFBundleDocumentTypes entry in Info.plist. iOS copies the file into
+// Documents/Inbox first (we don't claim open-in-place), so it is safe to delete after.
+- (BOOL)application:(UIApplication *)app
+            openURL:(NSURL *)url
+            options:(NSDictionary<UIApplicationOpenURLOptionsKey, id> *)options {
+    if (!url.isFileURL || ![url.pathExtension.lowercaseString isEqualToString:@"zip"]) {
+        return NO;
+    }
+    NSLog(@"[AppDelegate] open-in zip: %@", url.lastPathComponent);
+
+    [AmbientPackageImporter importZipAtURL:url
+                            packageManager:[PackageManager sharedManager]
+                                completion:^(NSString *summary, BOOL replaced, NSError *error) {
+        // Only delete our own Inbox copy, never a file opened in place.
+        if ([url.path containsString:@"/Documents/Inbox/"]) {
+            [[NSFileManager defaultManager] removeItemAtURL:url error:nil];
+        }
+        if (!error) {
+            [self.weatherController refreshNow];
+        }
+
+        UIViewController *top = self.window.rootViewController;
+        while (top.presentedViewController) {
+            top = top.presentedViewController;
+        }
+        UIAlertController *alert =
+            [UIAlertController alertControllerWithTitle:error ? @"Import failed"
+                                                             : (replaced ? @"Package updated" : @"Package installed")
+                                                message:error ? error.localizedDescription : summary
+                                         preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [top presentViewController:alert animated:YES completion:nil];
+    }];
+    return YES;
+}
 
 - (void)applicationDidBecomeActive:(UIApplication *)application {
     // Timers don't fire while suspended; catch up on return to the foreground.

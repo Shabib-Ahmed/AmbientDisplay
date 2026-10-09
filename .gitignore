@@ -34,3 +34,9 @@ entitlements_binary.plist.ldid.entitlements.plist
 
 .device_container_path
 ambient_syslog.txt
+
+# Release output from Scripts/deployProd.sh
+dist/
+
+# Zipped test packages for import testing
+*.zip

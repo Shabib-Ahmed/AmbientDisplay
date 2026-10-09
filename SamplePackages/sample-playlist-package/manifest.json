@@ -1,41 +1,9 @@
 {
-  "packageId": "sample-scene-package",
-  "type": "theme",
-  "theme": {
-    "displayName": "Sample Scene",
-    "background": {
-      "video": "test.mp4"
-    },
-    "weatherTags": [],
-    "layers": [
-      {
-        "kind": "effect",
-        "shaders": [
-          {
-            "path": "Shaders/GradientWash.metal",
-            "params": { "x": 0.58, "y": 0.78, "z": 0.7853981634, "w": 0.02 }
-          }
-        ]
-      },
-      {
-        "kind": "clock",
-        "format": "h:mm",
-        "font": "HelveticaNeue-Thin",
-        "size": 72,
-        "color": "#FFFFFF",
-        "position": { "x": 0.5, "y": 0.5 }
-      },
-      {
-        "kind": "effect",
-        "sensitivity": 1.0,
-        "shaders": [
-          {
-            "path": "Shaders/Bars.metal",
-            "inputs": ["audioLevels"],
-            "params": { "x": 0.35, "y": 0.3, "z": 0.0, "w": 0.0 }
-          }
-        ]
-      }
+  "packageId": "sample-playlist-package",
+  "type": "playlist",
+  "playlist": {
+    "tracks": [
+      "track1.mp3"
     ]
   }
 }
